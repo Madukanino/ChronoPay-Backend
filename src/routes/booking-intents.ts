@@ -19,24 +19,17 @@ import { validateBody } from "../middleware/validation.js";
 import { antiFraudScoring, captureRequestBody } from "../middleware/fraudScoring.js";
 import {
   CreateBookingIntentBodySchema,
+  type CreateBookingIntentBody,
 } from "../middleware/schemas.js";
 import {
   BookingIntentService,
   BookingIntentError,
-  parseCreateBookingIntentBody,
 } from "../modules/booking-intents/booking-intent-service.js";
 import { isAppError } from "../errors/AppError.js";
 import { InMemoryBookingIntentRepository } from "../modules/booking-intents/booking-intent-repository.js";
 import { InMemorySlotRepository } from "../modules/slots/slot-repository.js";
 import { logger } from "../utils/logger.js";
 import { FraudScorer } from "../services/fraudScorer.js";
-import {
-  FraudReasonCode,
-  getFraudReasonCode,
-  getFraudMessage,
-} from "../services/fraudReasonCodes.js";
-import { QuarantineStore } from "../services/quarantineStore.js";
-import { InMemoryFxRateProvider } from "../services/fxRateProvider.js";
 
 export function createBookingIntentsRouter(
   options: {
@@ -52,7 +45,7 @@ export function createBookingIntentsRouter(
    *
    * @throws BookingIntentError(400) when both `slotId` and `rrule` are present.
    */
-  function assertNotAmbiguousBookingPayload(body: unknown): void {
+  function _assertNotAmbiguousBookingPayload(body: unknown): void {
     if (body && typeof body === "object" && !Array.isArray(body)) {
       const candidate = body as Record<string, unknown>;
       if (candidate.slotId !== undefined && candidate.rrule !== undefined) {
@@ -120,13 +113,13 @@ export function createBookingIntentsRouter(
       try {
         const input = req.body as CreateBookingIntentBody;
         if (input.rrule !== undefined) {
-          const report = await bookingIntentService.createRecurringIntents(input, req.auth!);
+          const report = await bookingIntentService.createRecurringIntents(input as any, req.auth!);
           res.status(201).json({
             success: true,
             report,
           });
         } else {
-          const intent = await bookingIntentService.createIntent(input, req.auth!);
+          const intent = await bookingIntentService.createIntent(input as any, req.auth!);
           res.status(201).json({
             success: true,
             intent,
