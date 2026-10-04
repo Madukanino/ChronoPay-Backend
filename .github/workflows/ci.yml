@@ -39,7 +39,7 @@ jobs:
           POSTGRES_DB: testdb
         ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U test -d testdb"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -52,6 +52,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      PGUSER: test
+      PGPASSWORD: test
+      PGDATABASE: testdb
+      PGHOST: localhost
+      PGPORT: 5432
       DATABASE_URL: postgres://test:test@localhost:5432/testdb
       POSTGRESQL_URL: postgres://test:test@localhost:5432/testdb
       REDIS_URL: redis://localhost:6379

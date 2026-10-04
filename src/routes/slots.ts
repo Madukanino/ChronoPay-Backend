@@ -20,6 +20,11 @@ import {
   getSlotRecordById,
   type SecondaryListingInput,
 } from "../repositories/slotRepository.js";
+import {
+  getCachedSlotsPage,
+  setCachedSlotsPage,
+  invalidateSlotsCache,
+} from "../cache/slotCache.js";
 
 const router = Router();
 const SLOT_NOT_FOUND = "Slot not found";
@@ -69,10 +74,37 @@ router.get(
 
       const page = pageStr !== undefined ? parseInt(pageStr) : 1;
       const limit = limitStr !== undefined ? parseInt(limitStr) : 10;
+      const timezone = req.buyerTimezone || "UTC";
+
+      const cached = await getCachedSlotsPage(page);
+      if (cached && (!limitStr || cached.pageSize === limit)) {
+        const normalized = normalizeSlots(cached.slots as any, timezone);
+        res.set("X-Cache", "HIT");
+        return res.json({
+          success: true,
+          data: normalized,
+          slots: normalized,
+          page: cached.page,
+          limit: cached.pageSize,
+          total: cached.total,
+          timezone,
+          timezoneSource: req.buyerTimezoneSource || "default",
+          meta: {
+            cache: "hit",
+          },
+        });
+      }
 
       const result = await slotService.list({ page, limit });
-      const timezone = req.buyerTimezone || "UTC";
       const normalized = normalizeSlots(result.slots as any, timezone);
+
+      await setCachedSlotsPage(page, {
+        slots: result.slots as any,
+        page: result.page,
+        pageSize: result.limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / result.limit),
+      });
 
       res.set("X-Cache", "MISS");
       res.json({
@@ -333,6 +365,7 @@ router.post(
         startTime,
         endTime,
       });
+      await invalidateSlotsCache();
       res.status(201).json({
         success: true,
         slot,
@@ -405,6 +438,7 @@ router.patch("/:id", requireRole(["admin"]), async (req: Request, res: Response)
   try {
     const { id } = req.params;
     const updatedSlot = slotService.updateSlot(id, req.body);
+    await invalidateSlotsCache();
 
     res.json({
       success: true,
@@ -439,6 +473,7 @@ router.delete("/:id", authorizeSlotDelete, async (req: Request, res: Response) =
     }
 
     const deletedSlotId = await slotService.deleteSlot(id);
+    await invalidateSlotsCache();
     res.json({ success: true, deletedSlotId });
   } catch (error: any) {
     if (error instanceof SlotNotFoundError) {

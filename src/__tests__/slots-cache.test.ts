@@ -1,10 +1,31 @@
 import request from "supertest";
 import app from "../app.js";
 import { invalidateSlotsCache } from "../cache/slotCache.js";
+import { setRedisClient } from "../cache/redisClient.js";
+
+function createMockRedisClient() {
+  const store = new Map<string, string>();
+  return {
+    async get(key: string) { return store.get(key) ?? null; },
+    async set(key: string, value: string) { store.set(key, value); return "OK"; },
+    async del(key: string) { return store.delete(key) ? 1 : 0; },
+    async keys(pattern: string) {
+      const prefix = pattern.replace(/\*$/, "");
+      return Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+    },
+    async ping() { return "PONG"; },
+    async quit() {},
+  };
+}
 
 describe("GET /api/v1/slots cache contract", () => {
   beforeEach(async () => {
+    setRedisClient(createMockRedisClient() as any);
     await invalidateSlotsCache();
+  });
+
+  afterAll(() => {
+    setRedisClient(null);
   });
 
   it("should return X-Cache: MISS on the first request and X-Cache: HIT on the second", async () => {
