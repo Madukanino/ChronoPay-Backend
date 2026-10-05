@@ -25,6 +25,7 @@ import {
   setCachedSlotsPage,
   invalidateSlotsCache,
 } from "../cache/slotCache.js";
+import { payloadLimit, ROUTE_PAYLOAD_LIMITS } from "../middleware/payloadLimit.js";
 
 const router = Router();
 const SLOT_NOT_FOUND = "Slot not found";
@@ -326,6 +327,7 @@ router.post(
  */
 router.post(
   "/",
+  ...payloadLimit(ROUTE_PAYLOAD_LIMITS.slots),
   requireApiKey(process.env.CHRONOPAY_API_KEY),
   requireFeatureFlag("CREATE_SLOT"),
   // Times that parse but are impossible (negative epoch, > 24h span) are

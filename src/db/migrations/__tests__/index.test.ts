@@ -6,6 +6,7 @@
  * failure branch can be asserted directly instead of importing a broken registry.
  */
 
+import { jest } from "@jest/globals";
 import {
   migrations,
   findDuplicateMigrationIds,

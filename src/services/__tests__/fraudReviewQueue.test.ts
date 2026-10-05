@@ -1,19 +1,17 @@
-// @ts-nocheck
 import { jest } from '@jest/globals';
-import { fraudReviewQueue } from "../fraudReviewQueue";
-import { logger } from "../../utils/logger";
-
-jest.mock("../../utils/logger", () => ({
-  logger: {
-    info: jest.fn(),
-    error: jest.fn(),
-  }
-}));
+import { fraudReviewQueue } from "../fraudReviewQueue.js";
+import { logger } from "../../utils/logger.js";
 
 describe("FraudReviewQueue", () => {
+  let infoSpy: any;
+
   beforeEach(() => {
     fraudReviewQueue._reset();
-    jest.clearAllMocks();
+    infoSpy = jest.spyOn(logger, "info").mockImplementation(() => logger);
+  });
+
+  afterEach(() => {
+    infoSpy?.mockRestore();
   });
 
   it("should enqueue a review item and set pending status with SLA", () => {

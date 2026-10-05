@@ -1,6 +1,12 @@
 import express from "express";
 import request from "supertest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { payloadLimit, ROUTE_PAYLOAD_LIMITS } from "../middleware/payloadLimit.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 
 
@@ -62,7 +68,8 @@ describe("Slot POST route payload limit", () => {
     // Verify the middleware is imported and used in the route file
     // eslint-disable-next-line unused-imports/no-unused-vars
     const slotsModule = await import("../routes/slots.js");
-    const slotsSource = await import("fs").then(fs => fs.readFileSync("c:\\Users\\EMMA\\Desktop\\chronopay\\src\\routes\\slots.ts", "utf-8"));
+    const slotsPath = path.resolve(__dirname, "../routes/slots.ts");
+    const slotsSource = fs.readFileSync(slotsPath, "utf-8");
     
     expect(slotsSource).toContain('payloadLimit');
     expect(slotsSource).toContain('ROUTE_PAYLOAD_LIMITS.slots');
@@ -72,7 +79,8 @@ describe("Slot POST route payload limit", () => {
 describe("Booking-intent POST route payload limit", () => {
   it("payloadLimit middleware is applied to booking-intent route", async () => {
     // Verify the middleware is imported and used in the route file
-    const bookingIntentsSource = await import("fs").then(fs => fs.readFileSync("src/routes/booking-intents.ts", "utf-8"));
+    const bookingIntentsPath = path.resolve(__dirname, "../routes/booking-intents.ts");
+    const bookingIntentsSource = fs.readFileSync(bookingIntentsPath, "utf-8");
     
     expect(bookingIntentsSource).toContain('payloadLimit');
     expect(bookingIntentsSource).toContain('ROUTE_PAYLOAD_LIMITS.bookingIntent');

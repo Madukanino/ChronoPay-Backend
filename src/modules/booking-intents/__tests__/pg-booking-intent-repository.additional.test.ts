@@ -1,12 +1,13 @@
+import { jest } from "@jest/globals";
 import { PgBookingIntentRepository } from "../pg-booking-intent-repository.js";
 
 describe('PgBookingIntentRepository additional edge cases', () => {
-  let mockQuery: jest.Mock;
+  let mockQuery: any;
   let repo: PgBookingIntentRepository;
 
   beforeEach(() => {
     mockQuery = jest.fn();
-    repo = new PgBookingIntentRepository(mockQuery as any);
+    repo = new PgBookingIntentRepository(mockQuery);
   });
 
   test('create - throws when required fields are missing (slotId)', async () => {

@@ -1,4 +1,5 @@
 // Regression tests for slotCache silent failure paths
+import { jest } from "@jest/globals";
 import { setRedisClient } from "../../src/cache/redisClient.js";
 import {
   getCachedSlotsPage,

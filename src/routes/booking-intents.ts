@@ -15,6 +15,7 @@ import { requireFeatureFlag } from "../middleware/featureFlags.js";
 import { auditMiddleware } from "../middleware/audit.js";
 import { createAuthAwareRateLimiter } from "../middleware/rateLimiter.js";
 import { idempotencyMiddleware } from "../middleware/idempotency.js";
+import { payloadLimit, ROUTE_PAYLOAD_LIMITS } from "../middleware/payloadLimit.js";
 import { validateBody } from "../middleware/validation.js";
 import { antiFraudScoring, captureRequestBody } from "../middleware/fraudScoring.js";
 import {
@@ -80,6 +81,7 @@ export function createBookingIntentsRouter(
 
   router.post(
     "/",
+    ...payloadLimit(ROUTE_PAYLOAD_LIMITS.bookingIntent),
     requireFeatureFlag("CREATE_BOOKING_INTENT"),
     requireAuthenticatedActor(["customer", "admin"]),
     // Preserve the pre-validation body so the fraud wall (below) can still see
