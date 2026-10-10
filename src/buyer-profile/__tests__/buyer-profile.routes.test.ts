@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { jest } from "@jest/globals";
 import express from "express";
 import request from "supertest";
 
@@ -138,6 +139,12 @@ describe("buyer-profile routes", () => {
       .get("/api/v1/buyer-profiles")
       .set("x-test-user-id", userId)
       .expect(403);
+
+    await request(app)
+      .post("/api/v1/buyer-profiles")
+      .set("x-test-user-id", userId)
+      .send(profile)
+      .expect(201);
 
     const listing = await request(app)
       .get("/api/v1/buyer-profiles?page=1&limit=10")

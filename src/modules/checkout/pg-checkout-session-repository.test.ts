@@ -1,9 +1,10 @@
+import { jest } from "@jest/globals";
 import { PgCheckoutSessionRepository } from "./pg-checkout-session-repository.js";
 import { CheckoutSession, CheckoutSessionStatus } from "../../types/checkout.js";
 
 describe("PgCheckoutSessionRepository", () => {
   let repository: PgCheckoutSessionRepository;
-  let mockDbQuery: jest.Mock;
+  let mockDbQuery: any;
 
   const mockSession: CheckoutSession = {
     id: "test-id-123",

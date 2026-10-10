@@ -2,21 +2,22 @@
 /**
  * Test suite for authentication and authorization middleware.
  */
+import { jest } from '@jest/globals';
 import { Request, Response } from 'express';
-import { authenticateToken, authorize, authorizeOwnerOrAdmin, UserRole } from '../../middleware/auth.middleware.js';
 
-// Mock dependencies
-jest.mock('../../utils/jwt.js', () => ({
-  verifyJwt: jest.fn(),
+const mockVerifyJwt: any = jest.fn();
+const mockGetAllSecretVersions: any = jest.fn();
+
+jest.unstable_mockModule('../../utils/jwt.js', () => ({
+  verifyJwt: mockVerifyJwt,
 }));
-jest.mock('../../config/config.service.js', () => ({
+jest.unstable_mockModule('../../config/config.service.js', () => ({
   configService: {
-    getAllSecretVersions: jest.fn(),
+    getAllSecretVersions: mockGetAllSecretVersions,
   },
 }));
 
-import { verifyJwt } from '../../utils/jwt.js';
-import { configService } from '../../config/config.service.js';
+const { authenticateToken, authorize, authorizeOwnerOrAdmin, UserRole } = await import('../../middleware/auth.middleware.js');
 
 describe('authenticateToken', () => {
   const makeReq = (authHeader?: string) => ({
@@ -24,18 +25,18 @@ describe('authenticateToken', () => {
   } as unknown as Request);
 
   const makeRes = () => {
-    const res: Partial<Response> = {};
+    const res: any = {};
     res.status = jest.fn().mockReturnValue(res);
     res.json = jest.fn().mockReturnValue(res);
     return res as Response;
   };
 
-  const nextFn = jest.fn();
+  const nextFn: any = jest.fn();
 
   beforeEach(() => {
     jest.resetAllMocks();
     delete process.env.JWT_SECRET;
-    (configService.getAllSecretVersions as jest.Mock).mockReturnValue([]);
+    mockGetAllSecretVersions.mockReturnValue([]);
     nextFn.mockReset();
   });
 
@@ -79,10 +80,11 @@ describe('authenticateToken', () => {
 
   test('returns 401 when token verification fails', async () => {
     process.env.JWT_SECRET = 'secret';
-    (verifyJwt as jest.Mock).mockRejectedValue(new Error('invalid'));
+    mockVerifyJwt.mockRejectedValue(new Error('invalid'));
     const req = makeReq('Bearer badtoken');
     const res = makeRes();
-    await authenticateToken(req, res, nextFn);
+    authenticateToken(req, res, nextFn);
+    await new Promise((resolve) => setImmediate(resolve));
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({ success: false, error: 'Invalid or expired token' });
   });
@@ -90,10 +92,11 @@ describe('authenticateToken', () => {
   test('sets req.user and calls next on valid token', async () => {
     process.env.JWT_SECRET = 'secret';
     const payload = { sub: '123', email: 'test@example.com', role: UserRole.USER } as any;
-    (verifyJwt as jest.Mock).mockResolvedValue(payload);
+    mockVerifyJwt.mockResolvedValue(payload);
     const req = makeReq('Bearer goodtoken') as Request & { user?: any };
     const res = makeRes();
-    await authenticateToken(req, res, nextFn);
+    authenticateToken(req, res, nextFn);
+    await new Promise((resolve) => setImmediate(resolve));
     expect(req.user).toBe(payload);
     expect(nextFn).toHaveBeenCalled();
   });
@@ -102,7 +105,7 @@ describe('authenticateToken', () => {
 describe('authorize middleware', () => {
   const makeReq = (user?: any) => ({ user } as Request);
   const makeRes = () => {
-    const res: Partial<Response> = {};
+    const res: any = {};
     res.status = jest.fn().mockReturnValue(res);
     res.json = jest.fn().mockReturnValue(res);
     return res as Response;
@@ -151,14 +154,14 @@ describe('authorizeOwnerOrAdmin middleware', () => {
     ...params,
   } as Request);
   const makeRes = () => {
-    const res: Partial<Response> = {};
+    const res: any = {};
     res.status = jest.fn().mockReturnValue(res);
     res.json = jest.fn().mockReturnValue(res);
     return res as Response;
   };
   const nextFn = jest.fn();
 
-  const getResourceUserId = jest.fn();
+  const getResourceUserId: any = jest.fn();
 
   beforeEach(() => {
     jest.resetAllMocks();
