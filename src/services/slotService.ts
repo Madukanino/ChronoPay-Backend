@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { randomUUID } from "crypto";
 // @ts-expect-error - Auto-fixed by script
 import { PaginatedSlots, Slot } from "../types.js";
 // @ts-expect-error - Auto-fixed by script
@@ -227,7 +228,8 @@ export class SlotService {
         }
     }
 
-    const slot = { id: this.nextId++, ...data };
+    const slotId = data.id !== undefined ? String(data.id) : `slot-${randomUUID()}`;
+    const slot = { ...data, id: slotId };
     this._slots.push(slot);
     
     if (this.cache) {
