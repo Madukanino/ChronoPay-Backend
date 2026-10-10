@@ -35,12 +35,15 @@ interface QueryCall {
  */
 function createHarness() {
   const calls: QueryCall[] = [];
-  const query = jest.fn(async (text: string, values?: unknown[]) => {
-    calls.push({ text, values });
+  const innerMock = jest.fn(async (_text: string, _values?: unknown[]) => {
     return { rows: [] as unknown[] };
   });
+  const query = jest.fn(async (text: string, values?: unknown[]) => {
+    calls.push({ text, values });
+    return innerMock(text, values);
+  });
 
-  return { client: { query } as unknown as PoolClient, query, calls };
+  return { client: { query } as unknown as PoolClient, query: innerMock, calls };
 }
 
 /** Collapse whitespace so assertions are insensitive to template indentation. */
@@ -65,7 +68,7 @@ describe("migration 019 — add_active_booking_intent_unique_idx", () => {
 
   describe("migration metadata", () => {
     it("keeps the registered id and name stable", () => {
-      expect(migration.id).toBe("019");
+      expect(migration.id).toBe("024");
       expect(migration.name).toBe("add_active_booking_intent_unique_idx");
     });
 

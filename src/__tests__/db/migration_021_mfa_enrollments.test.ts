@@ -22,7 +22,7 @@ describe("Migration 021: create_mfa_enrollments_table", () => {
 
     const result = await runner.up();
     expect(result.success).toBe(true);
-    expect(result.applied).toContain("021");
+    expect(result.applied).toContain(migration021.id);
   });
 
   afterAll(async () => {
@@ -338,7 +338,7 @@ describe("Migration 021: create_mfa_enrollments_table", () => {
     it("drops the index and table cleanly", async () => {
       const result = await runner.down(1);
       expect(result.success).toBe(true);
-      expect(result.applied).toContain("021");
+      expect(result.applied).toContain(migration021.id);
 
       const tableResult = await pool.query(`
         SELECT table_name 
@@ -358,7 +358,7 @@ describe("Migration 021: create_mfa_enrollments_table", () => {
     it("can be re-applied after rollback", async () => {
       const result = await runner.up();
       expect(result.success).toBe(true);
-      expect(result.applied).toContain("021");
+      expect(result.applied).toContain(migration021.id);
 
       const tableResult = await pool.query(`
         SELECT table_name 

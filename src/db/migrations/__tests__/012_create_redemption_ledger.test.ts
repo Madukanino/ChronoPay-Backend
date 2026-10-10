@@ -13,7 +13,7 @@ function normalizeSql(sql: string): string {
 
 describe("012_create_redemption_ledger migration", () => {
   it("exposes the expected migration identity and lifecycle functions", () => {
-    expect(migration.id).toBe("012");
+    expect(migration.id).toBe("016");
     expect(migration.name).toBe("create_redemption_ledger");
     expect(typeof migration.up).toBe("function");
     expect(typeof migration.down).toBe("function");

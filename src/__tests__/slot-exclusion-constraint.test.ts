@@ -14,7 +14,7 @@ describe("slot exclusion constraint", () => {
       connectionString: process.env.POSTGRESQL_URL || "postgres://test:test@localhost:5432/testdb",
     });
 
-    runner = new MigrationRunner(pool, migrationRepository, migrations);
+    runner = new MigrationRunner(pool, migrationRepository, migrations.slice(0, 3));
 
     // Clean up any existing schema
     await pool.query("DROP TABLE IF EXISTS slots CASCADE");

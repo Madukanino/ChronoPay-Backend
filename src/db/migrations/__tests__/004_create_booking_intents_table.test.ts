@@ -111,7 +111,7 @@ describe("migration 004 — create_booking_intents_table", () => {
       expect(indexes.every((s) => s.startsWith("CREATE INDEX"))).toBe(true);
     });
 
-    it("declares exactly the four booking-intent statuses, in order", async () => {
+    it("declares the booking-intent statuses, in order", async () => {
       const { client, calls } = makeClient();
       await migration.up(asClient(client));
       const enumSql = run(calls)[0];
@@ -119,7 +119,21 @@ describe("migration 004 — create_booking_intents_table", () => {
         .slice(enumSql.indexOf("(") + 1, enumSql.lastIndexOf(")"))
         .split(",")
         .map((v) => v.trim().replace(/^'|'$/g, ""));
-      expect(values).toEqual(["pending", "completed", "expired", "cancelled"]);
+      expect(values).toEqual([
+        "pending",
+        "confirmed",
+        "firm",
+        "completed",
+        "cancelled",
+        "expired",
+        "hold_placed",
+        "hold_refunded",
+        "escrow_held",
+        "escrow_released",
+        "escrow_refunded",
+        "escrow_disputed",
+        "no_show",
+      ]);
     });
 
     it("is deterministic across runs", async () => {

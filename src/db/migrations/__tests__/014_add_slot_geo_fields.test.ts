@@ -20,7 +20,7 @@ function createRecordingClient(onQuery?: (sql: string, call: number) => Promise<
 
 describe("014_add_slot_geo_fields migration", () => {
   it("adds nullable geo columns, coordinate bounds, consistency, and a partial index", async () => {
-    expect(migration).toMatchObject({ id: "014", name: "add_slot_geo_fields" });
+    expect(migration).toMatchObject({ id: "017", name: "add_slot_geo_fields" });
     const { client, statements } = createRecordingClient();
 
     await migration.up(client);

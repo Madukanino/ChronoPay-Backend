@@ -20,9 +20,10 @@ export function parseSlotIdParam(req: Request, res: Response, next: NextFunction
 
   const numericId = Number(rawId);
   const isNumericSlotId = Number.isInteger(numericId) && numericId > 0;
+  const isLegacyStringId = /^[A-Za-z0-9_-]+$/.test(rawId);
   const isCanonicalSlotId = CANONICAL_SLOT_ID_PATTERN.test(rawId);
 
-  if (!isNumericSlotId && !isCanonicalSlotId) {
+  if (!isNumericSlotId && !isLegacyStringId && !isCanonicalSlotId) {
     sendErrorResponse(res, new BadRequestError("Invalid slot id"), req);
     return;
   }

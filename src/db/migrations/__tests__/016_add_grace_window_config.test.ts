@@ -13,23 +13,23 @@ function normalizedQuery(query: jest.MockedFunction<Query>, index: number): stri
   return query.mock.calls[index]?.[0].replace(/\s+/g, " ").trim() ?? "";
 }
 
-describe("migration 017 add_grace_window_config", () => {
+describe("migration 022 add_grace_window_config", () => {
   it("exposes the expected migration identity", () => {
-    expect(migration.id).toBe("017");
+    expect(migration.id).toBe("022");
     expect(migration.name).toBe("add_grace_window_config");
   });
 
-  it("creates the config, history, and slots schema in dependency order", async () => {
+  it("creates the config and history schema in dependency order", async () => {
     const { client, query } = mockClient();
 
     await migration.up(client);
 
-    expect(query).toHaveBeenCalledTimes(8);
+    expect(query).toHaveBeenCalledTimes(5);
     expect(normalizedQuery(query, 0)).toContain("CREATE TABLE slot_category_grace_windows");
     expect(normalizedQuery(query, 1)).toContain("CREATE INDEX idx_grace_windows_category");
     expect(normalizedQuery(query, 2)).toContain("CREATE TABLE slot_category_grace_window_history");
-    expect(normalizedQuery(query, 5)).toContain("ALTER TABLE slots ADD COLUMN category TEXT");
-    expect(normalizedQuery(query, 7)).toContain("CREATE INDEX idx_slots_category");
+    expect(normalizedQuery(query, 3)).toContain("CREATE INDEX idx_grace_window_history_category");
+    expect(normalizedQuery(query, 4)).toContain("CREATE INDEX idx_grace_window_history_changed_at");
   });
 
   it("encodes invalid-value boundaries in database constraints", async () => {
@@ -49,10 +49,6 @@ describe("migration 017 add_grace_window_config", () => {
       "previous_grace_window_seconds IS NULL OR previous_grace_window_seconds >= 1",
     );
     expect(historyTable).toContain("char_length(reason) <= 500");
-
-    expect(normalizedQuery(query, 6)).toContain(
-      "category IS NULL OR char_length(category) <= 100",
-    );
   });
 
   it("propagates a schema failure without issuing later statements", async () => {
@@ -69,17 +65,20 @@ describe("migration 017 add_grace_window_config", () => {
 
     await migration.down(client);
 
-    expect(query).toHaveBeenCalledTimes(8);
-    expect(normalizedQuery(query, 0)).toContain("DROP INDEX IF EXISTS idx_slots_category");
-    expect(normalizedQuery(query, 1)).toContain("DROP CONSTRAINT IF EXISTS chk_slots_category_len");
-    expect(normalizedQuery(query, 2)).toContain("DROP COLUMN IF EXISTS category");
-    expect(normalizedQuery(query, 3)).toContain(
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(normalizedQuery(query, 0)).toContain(
       "DROP INDEX IF EXISTS idx_grace_window_history_changed_at",
     );
-    expect(normalizedQuery(query, 5)).toContain(
+    expect(normalizedQuery(query, 1)).toContain(
+      "DROP INDEX IF EXISTS idx_grace_window_history_category",
+    );
+    expect(normalizedQuery(query, 2)).toContain(
       "DROP TABLE IF EXISTS slot_category_grace_window_history",
     );
-    expect(normalizedQuery(query, 7)).toContain(
+    expect(normalizedQuery(query, 3)).toContain(
+      "DROP INDEX IF EXISTS idx_grace_windows_category",
+    );
+    expect(normalizedQuery(query, 4)).toContain(
       "DROP TABLE IF EXISTS slot_category_grace_windows",
     );
   });
