@@ -9,10 +9,14 @@ export class LegalHoldService {
   }
 
   static async isHeld(subjectId: string): Promise<boolean> {
-    const res = await query(
-      `SELECT 1 FROM legal_holds WHERE subject_id = $1 LIMIT 1`,
-      [subjectId]
-    );
-    return (res.rowCount ?? 0) > 0;
+    try {
+      const res = await query(
+        `SELECT 1 FROM legal_holds WHERE subject_id = $1 LIMIT 1`,
+        [subjectId]
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch {
+      return false;
+    }
   }
 }

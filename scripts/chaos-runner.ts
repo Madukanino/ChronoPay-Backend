@@ -66,9 +66,9 @@ export async function runScenario(spec: ScenarioSpec): Promise<ScenarioOutcome> 
     let preCheckPassed = false;
     try {
       preCheckPassed = await spec.preCheck();
-    } catch {
+    } catch (err: any) {
       outcome.status = 'PRE_CHECK_FAILED';
-      outcome.error = 'Pre-check threw error';
+      outcome.error = `Pre-check threw error: ${err?.message || err}`;
       outcome.durationMs = Date.now() - start;
       await persistOutcome(outcome);
       return outcome;
@@ -85,9 +85,9 @@ export async function runScenario(spec: ScenarioSpec): Promise<ScenarioOutcome> 
     // Run
     try {
       await spec.run();
-    } catch {
+    } catch (err: any) {
       outcome.status = 'RUN_FAILED';
-      outcome.error = 'Run threw error';
+      outcome.error = `Run threw error: ${err?.message || err}`;
       outcome.durationMs = Date.now() - start;
       await persistOutcome(outcome);
       return outcome;
@@ -97,9 +97,9 @@ export async function runScenario(spec: ScenarioSpec): Promise<ScenarioOutcome> 
     let postCheckPassed = false;
     try {
       postCheckPassed = await spec.postCheck();
-    } catch {
+    } catch (err: any) {
       outcome.status = 'POST_CHECK_FAILED';
-      outcome.error = 'Post-check threw error';
+      outcome.error = `Post-check threw error: ${err?.message || err}`;
       outcome.durationMs = Date.now() - start;
       await persistOutcome(outcome);
       return outcome;
@@ -110,9 +110,9 @@ export async function runScenario(spec: ScenarioSpec): Promise<ScenarioOutcome> 
       outcome.error = 'Post-check failed or returned false.';
     }
 
-  } catch {
+  } catch (err: any) {
     outcome.status = 'ABORTED';
-    outcome.error = 'Unexpected error';
+    outcome.error = `Unexpected error: ${err?.message || err}`;
   }
 
   outcome.durationMs = Date.now() - start;

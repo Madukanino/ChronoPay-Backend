@@ -7,6 +7,23 @@ import {
   type SmsSendResult,
 } from "../../services/smsNotification.js";
 
+function createTestApp(router: express.Router) {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as any).flags = {
+      isEnabled: () => true,
+      isEnabledForTenant: () => true,
+    };
+    (req as any).auth = { userId: "user-123", role: "customer" };
+    req.headers["x-chronopay-user-id"] = "user-123";
+    req.headers["x-chronopay-role"] = "customer";
+    next();
+  });
+  app.use("/api/v1/notifications", router);
+  return app;
+}
+
 describe("notifications routes", () => {
   describe("POST /api/v1/notifications/sms", () => {
     it("returns 502 on provider failure", async () => {
@@ -23,16 +40,7 @@ describe("notifications routes", () => {
 
       const smsService = new SmsNotificationService(failingProvider);
       const router = createNotificationsRouter(smsService);
-
-      const app = express();
-      app.use(express.json());
-      app.use("/api/v1/notifications", router);
-
-      // Mock middleware
-      app.use((req, res, next) => {
-        req.auth = { userId: "user-123", role: "customer" };
-        next();
-      });
+      const app = createTestApp(router);
 
       const res = await request(app)
         .post("/api/v1/notifications/sms")
@@ -61,16 +69,7 @@ describe("notifications routes", () => {
 
       const smsService = new SmsNotificationService(successProvider);
       const router = createNotificationsRouter(smsService);
-
-      const app = express();
-      app.use(express.json());
-      app.use("/api/v1/notifications", router);
-
-      // Mock middleware
-      app.use((req, res, next) => {
-        req.auth = { userId: "user-123", role: "customer" };
-        next();
-      });
+      const app = createTestApp(router);
 
       const res = await request(app)
         .post("/api/v1/notifications/sms")
@@ -95,16 +94,7 @@ describe("notifications routes", () => {
         },
       });
       const router = createNotificationsRouter(smsService);
-
-      const app = express();
-      app.use(express.json());
-      app.use("/api/v1/notifications", router);
-
-      // Mock middleware
-      app.use((req, res, next) => {
-        req.auth = { userId: "user-123", role: "customer" };
-        next();
-      });
+      const app = createTestApp(router);
 
       const res = await request(app)
         .post("/api/v1/notifications/sms")
@@ -127,16 +117,7 @@ describe("notifications routes", () => {
         },
       });
       const router = createNotificationsRouter(smsService);
-
-      const app = express();
-      app.use(express.json());
-      app.use("/api/v1/notifications", router);
-
-      // Mock middleware
-      app.use((req, res, next) => {
-        req.auth = { userId: "user-123", role: "customer" };
-        next();
-      });
+      const app = createTestApp(router);
 
       const res = await request(app)
         .post("/api/v1/notifications/sms")
@@ -159,16 +140,7 @@ describe("notifications routes", () => {
         },
       });
       const router = createNotificationsRouter(smsService);
-
-      const app = express();
-      app.use(express.json());
-      app.use("/api/v1/notifications", router);
-
-      // Mock middleware
-      app.use((req, res, next) => {
-        req.auth = { userId: "user-123", role: "customer" };
-        next();
-      });
+      const app = createTestApp(router);
 
       const res = await request(app)
         .post("/api/v1/notifications/sms")

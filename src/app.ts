@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -6,6 +5,7 @@ import express, { type Request, type Response } from "express";
 import { getCORSConfig } from "./config/cors.js";
 import { createCORSMiddleware } from "./middleware/cors.js";
 import { requireApiKey } from "./middleware/apiKeyAuth.js";
+import { authenticateTokenIfPresent } from "./middleware/auth.middleware.js";
 import {
   genericErrorHandler,
   jsonParseErrorHandler,
@@ -78,6 +78,11 @@ import { ConflictPreviewService } from "./services/conflictPreviewService.js";
 import { RecurrenceError } from "./services/recurrenceService.js";
 import { ConflictPreviewBodySchema } from "./middleware/schemas.js";
 import { isValidIANATimezone } from "./validation/reminderValidation.js";
+import {
+  getCachedSlotsPage,
+  setCachedSlotsPage,
+  invalidateSlotsCache,
+} from "./cache/slotCache.js";
 
 
 export interface AppFactoryOptions {
@@ -384,8 +389,12 @@ export function createApp(options: AppFactoryOptions = {}) {
 
   // RBAC Middleware for tests
   const rbacMiddleware = (req: Request, res: Response, next: any) => {
+    // A verified JWT already establishes the caller's identity, so it
+    // satisfies the role requirement below. Routes that accept anonymous
+    // callers still pass `authenticateTokenIfPresent` first.
+    const authenticatedByJwt = Boolean(req.user);
     const role = req.header("x-user-role") || req.header("x-role");
-    if (!role && req.method === "POST" && req.path === "/api/v1/slots") {
+    if (!role && !authenticatedByJwt && req.method === "POST" && req.path === "/api/v1/slots") {
       return res.status(401).json({ success: false, error: "Authentication required" });
     }
     if (role === "hacker") return res.status(400).json({ success: false });
@@ -397,7 +406,7 @@ export function createApp(options: AppFactoryOptions = {}) {
   // 1. Slots Routes
   const slotRepo = options.slotRepository || new InMemorySlotRepository();
 
-  app.get("/api/v1/slots", async (req, res) => {
+  app.get("/api/v1/slots", authenticateTokenIfPresent, async (req, res) => {
     const page = parseInt(req.query.page as string);
     const limit = parseInt(req.query.limit as string);
 
@@ -406,22 +415,49 @@ export function createApp(options: AppFactoryOptions = {}) {
     if (limit > 100)
       return res.status(400).json({ success: false, error: "Limit exceeds maximum allowed value" });
 
+    const pageNum = isNaN(page) ? 1 : page;
+    const limitNum = isNaN(limit) ? 10 : limit;
+
+    const cached = await getCachedSlotsPage(pageNum);
+    if (cached) {
+      res.set("X-Cache", "HIT");
+      return res.json({
+        success: true,
+        slots: cached.slots,
+        data: cached.slots,
+        page: cached.page,
+        limit: cached.pageSize,
+        total: cached.total,
+        meta: { cache: "hit" },
+      });
+    }
+
     const slots = slotRepo.list();
     const result = {
       success: true,
       slots,
       data: isNaN(page) || page === 1 ? slots : [], // Simplified pagination for tests
-      page: isNaN(page) ? 1 : page,
-      limit: isNaN(limit) ? 10 : limit,
+      page: pageNum,
+      limit: limitNum,
       total: slots.length,
       meta: { cache: "miss" },
     };
+
+    await setCachedSlotsPage(pageNum, {
+      slots: slots as any,
+      page: pageNum,
+      pageSize: limitNum,
+      total: slots.length,
+      totalPages: Math.ceil(slots.length / limitNum) || 1,
+    });
+
     res.set("X-Cache", "MISS");
     res.json(result);
   });
 
   app.post(
     "/api/v1/slots",
+    authenticateTokenIfPresent,
     rbacMiddleware,
     requireApiKey(options.apiKey),
     requireFeatureFlag("CREATE_SLOT"),
@@ -442,6 +478,7 @@ export function createApp(options: AppFactoryOptions = {}) {
 
         // Mock creation for tests
         const slot = { id: "slot-new", professional, startTime, endTime, bookable: true };
+        await invalidateSlotsCache();
         res
           .status(201)
           .json({ success: true, slot, meta: { invalidatedKeys: ["slots:list:all"] } });
@@ -495,7 +532,7 @@ export function createApp(options: AppFactoryOptions = {}) {
     }
   );
 
-  app.delete("/api/v1/slots/:id", (req, res) => {
+  app.delete("/api/v1/slots/:id", async (req, res) => {
     const { id } = req.params;
     const userId = req.header("x-user-id");
     const role = req.header("x-role");
@@ -505,6 +542,7 @@ export function createApp(options: AppFactoryOptions = {}) {
     if (id === "invalid") return res.status(400).json({ success: false });
     if (userId === "bob") return res.status(403).json({ success: false });
 
+    await invalidateSlotsCache();
     res.json({ success: true, deletedSlotId: id });
   });
 

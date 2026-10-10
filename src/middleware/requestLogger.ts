@@ -113,6 +113,16 @@ const sanitizeRequestHeaders = (
  * - Response time metrics
  * - Filtering for health checks and static files
  */
+const syncLogLevel = () => {
+  if (process.env.NODE_ENV === "test") {
+    logger.level = "fatal";
+  } else if (process.env.NODE_ENV === "production") {
+    logger.level = "info";
+  } else {
+    logger.level = "debug";
+  }
+};
+
 export const createRequestLogger = () => {
   // In test mode, return a minimal middleware that doesn't log
   if (process.env.NODE_ENV === "test") {
@@ -123,6 +133,8 @@ export const createRequestLogger = () => {
       next();
     };
   }
+
+  syncLogLevel();
 
   const options: PinoHttpOptions = {
     logger,
@@ -249,7 +261,8 @@ export const createRequestLogger = () => {
  * Should be placed after all route handlers
  */
 export const errorLoggerMiddleware = (err: any, req: Request, res: Response, next: any) => {
-  const requestId = req.requestId || req.id || "unknown";
+  syncLogLevel();
+  const requestId = req.requestId || (req as any).id || "unknown";
   const duration = calculateDuration(req.startTime);
   const baseContext = buildRequestLogContext(req);
   const identity = extractIdentity(req);
