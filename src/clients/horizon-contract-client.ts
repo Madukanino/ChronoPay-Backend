@@ -1534,8 +1534,8 @@ export class HorizonContractClient implements IContractClient {
     }
 
     // ── Update bucket from response headers ─────────────────────────────────
-    const remainingHeader = response.headers.get("X-RateLimit-Remaining");
-    const resetHeader = response.headers.get("X-RateLimit-Reset");
+    const remainingHeader = response.headers?.get?.("X-RateLimit-Remaining") ?? null;
+    const resetHeader = response.headers?.get?.("X-RateLimit-Reset") ?? null;
     const remaining = remainingHeader !== null ? parseInt(remainingHeader, 10) : NaN;
     const resetEpoch = resetHeader !== null ? parseInt(resetHeader, 10) : NaN;
     bucket.update(remaining, resetEpoch);
@@ -1545,7 +1545,7 @@ export class HorizonContractClient implements IContractClient {
 
       if (response.status === 429) {
         // Parse Retry-After header if present (seconds or HTTP-date).
-        const retryAfterHeader = response.headers.get("Retry-After");
+        const retryAfterHeader = response.headers?.get?.("Retry-After") ?? null;
         let retryAfterMs: number | undefined;
         if (retryAfterHeader !== null) {
           const parsed = parseInt(retryAfterHeader, 10);
