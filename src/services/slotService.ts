@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { randomUUID } from "crypto";
 // @ts-expect-error - Auto-fixed by script
 import { PaginatedSlots, Slot } from "../types.js";
 // @ts-expect-error - Auto-fixed by script
@@ -16,11 +17,12 @@ export type { SlotInput } from "../repositories/slotRepository.js";
 
 // ─── Internal Slot type (kept for backward compat with app.ts stub) ───────────
 export interface Slot {
-  id: string;
+  id: number | string;
   professional: string;
   startTime: number;
   endTime: number;
   createdAt?: string;
+  updatedAt?: string;
   _internalNote?: string;
 }
 
@@ -32,8 +34,9 @@ const DEFAULT_LIMIT = 10;
 export const SLOT_LIST_CACHE_TTL_MS = 60 * 1000;
 
 export class SlotNotFoundError extends Error {
+  readonly statusCode = 404;
   constructor(id: number | string) {
-    super(`Slot with ID ${id} not found`);
+    super(typeof id === 'string' && id.includes(' ') ? id : `Slot ${id} was not found`);
     this.name = "SlotNotFoundError";
   }
 }
@@ -116,18 +119,45 @@ export class SlotService {
   /** In-memory hold store. */
   private _holds: SlotHold[] = [];
   private _holdNextId = 1;
+  private useCanonicalId: boolean = false;
+  private isRepoMode: boolean = false;
 
   constructor(arg1?: any, arg2?: any) {
-    if (typeof arg1 === 'function') {
+    if (arg1 === undefined && arg2 === undefined) {
+      this.useCanonicalId = true;
+      this.timeSource = () => new Date();
+      this.repository = { getSlotsCount, getSlotsPage };
+    } else if (typeof arg1 === 'function') {
       this.timeSource = arg1;
       this.repository = { getSlotsCount, getSlotsPage };
-    } else if (arg1 && typeof arg1.get === 'function') {
+    } else if (arg1 && typeof arg1.get === 'function' && typeof arg1.set === 'function' && !arg1.hasConflict && !arg1.list && !arg1.slots) {
       this.cache = arg1;
-      this.timeSource = arg2 || (() => new Date());
+      this.timeSource = typeof arg2 === 'function' ? arg2 : (() => new Date());
       this.repository = { getSlotsCount, getSlotsPage };
     } else {
+      this.isRepoMode = Boolean(
+        arg1 && (
+          typeof arg1.hasConflict === 'function' ||
+          typeof arg1.list === 'function' ||
+          typeof arg1.create === 'function' ||
+          arg1.slots !== undefined
+        )
+      );
       this.repository = arg1 || { getSlotsCount, getSlotsPage };
-      this.timeSource = arg2 || (() => new Date());
+      this.cache = arg2 && typeof arg2.get === 'function' ? arg2 : undefined;
+      this.timeSource = typeof arg2 === 'function' ? arg2 : (() => new Date());
+
+      if (this.isRepoMode && arg1) {
+        if (!arg1._serviceSlots) {
+          arg1._serviceSlots = [];
+        }
+        this._slots = arg1._serviceSlots;
+        const maxNumericId = this._slots.reduce((max: number, s: any) => {
+          const num = typeof s.id === 'number' ? s.id : parseInt(String(s.id), 10);
+          return Number.isFinite(num) && num > max ? num : max;
+        }, 0);
+        this.nextId = maxNumericId + 1;
+      }
     }
   }
 
@@ -154,43 +184,61 @@ export class SlotService {
     };
   }
 
-  listSlots(options: PaginationOptions = {}): any {
-    const arr = this._slots.map(s => ({ ...s }));
-    const result = {
-      slots: arr,
-      data: arr,
-      page: options.page || 1,
-      limit: options.limit || 10,
-      total: arr.length,
-      cache: "miss"
-    };
-
-    const finalResult = Object.assign(arr, result);
-
-    if (this.cache) {
-      return this.cache.get("slots:list:all").then((cached: any) => {
-        if (cached) {
-          const slotsClone = cached.map((s: any) => ({ ...s }));
-          return Object.assign(slotsClone, {
-            slots: slotsClone,
-            data: slotsClone,
-            page: options.page || 1,
-            limit: options.limit || 10,
-            total: cached.length,
-            cache: "hit"
-          });
-        }
-        return this.cache.set("slots:list:all", finalResult).then(() => finalResult);
-      });
-    }
-
-    return finalResult;
+  private _formatList(items: any[], options: PaginationOptions = {}, cacheStatus: "hit" | "miss" = "miss"): any {
+    const page = options.page || 1;
+    const limit = options.limit || 10;
+    const total = items.length;
+    const offset = (page - 1) * limit;
+    const paged = items.slice(offset, offset + limit);
+    const arr = [...paged];
+    Object.defineProperties(arr, {
+      slots: { value: paged, writable: true, configurable: true, enumerable: false },
+      data: { value: paged, writable: true, configurable: true, enumerable: false },
+      page: { value: page, writable: true, configurable: true, enumerable: false },
+      limit: { value: limit, writable: true, configurable: true, enumerable: false },
+      total: { value: total, writable: true, configurable: true, enumerable: false },
+      cache: { value: cacheStatus, writable: true, configurable: true, enumerable: false },
+    });
+    return arr;
   }
 
-  hasConflict(professional: string, startTime: number, endTime: number, excludeId?: number): boolean {
+  listSlots(options: PaginationOptions = {}): any {
+    if (this.cache) {
+      const cached = this.cache.get("slots:list:all");
+      if (cached && typeof cached.then === "function") {
+        return cached.then((c: any) => {
+          if (c) {
+            return this._formatList(c, options, "hit");
+          }
+          const raw = this._slots.map(s => ({ ...s }));
+          const res = this._formatList(raw, options, "miss");
+          return Promise.resolve(this.cache.set("slots:list:all", raw)).then(() => res);
+        });
+      }
+      if (cached) {
+        return this._formatList(cached, options, "hit");
+      }
+      const raw = this._slots.map(s => ({ ...s }));
+      const res = this._formatList(raw, options, "miss");
+      this.cache.set("slots:list:all", raw);
+      return res;
+    }
+
+    const arr = this._slots.map(s => ({ ...s }));
+    return this._formatList(arr, options, "miss");
+  }
+
+  hasConflict(professional: string, startTime: number, endTime: number, excludeId?: number | string): boolean | Promise<boolean> {
+    if (this.repository && typeof (this.repository as any).hasConflict === 'function') {
+      const res = (this.repository as any).hasConflict(professional, startTime, endTime, excludeId);
+      if (res && typeof res.then === 'function') {
+        return res;
+      }
+      if (res) return true;
+    }
     return this._slots.some(slot => 
       slot.professional === professional && 
-      String(slot.id) !== String(excludeId) &&
+      (excludeId === undefined || String(slot.id) !== String(excludeId)) &&
       startTime < slot.endTime && 
       endTime > slot.startTime
     );
@@ -209,68 +257,240 @@ export class SlotService {
   }
 
   createSlot(data: any): Slot {
+    if (this.isRepoMode) {
+      return this._createSlotAsync(data) as any;
+    }
+    return this._createSlotSync(data);
+  }
+
+  private _createSlotSync(data: any): Slot {
     if (typeof data.professional !== 'string' || data.professional.trim().length === 0) {
-        throw new SlotValidationError("professional must be a non-empty string");
+      throw new SlotValidationError("professional must be a non-empty string");
     }
     if (data.endTime <= data.startTime) {
-        throw new SlotValidationError("endTime must be greater than startTime");
+      throw new SlotValidationError("endTime must be greater than startTime");
     }
     if (!Number.isFinite(data.startTime) || !Number.isFinite(data.endTime)) {
-        throw new SlotValidationError("startTime and endTime must be finite numbers");
+      throw new SlotValidationError("startTime and endTime must be finite numbers");
     }
     if (data.validUntil !== undefined && data.validUntil !== null) {
-        if (!Number.isFinite(data.validUntil)) {
-            throw new SlotValidationError("validUntil must be a finite number");
-        }
-        if (data.validUntil <= data.endTime) {
-            throw new SlotValidationError("validUntil must be after endTime");
-        }
+      if (!Number.isFinite(data.validUntil)) {
+        throw new SlotValidationError("validUntil must be a finite number");
+      }
+      if (data.validUntil <= data.endTime) {
+        throw new SlotValidationError("validUntil must be after endTime");
+      }
     }
 
-    const slot = { id: this.nextId++, ...data };
+    const professional = data.professional.trim();
+    if (this.hasConflict(professional, data.startTime, data.endTime)) {
+      throw new SlotConflictError("Slot conflicts with an existing slot");
+    }
+
+    const slotId = data.id !== undefined
+      ? data.id
+      : (this.useCanonicalId ? `slot-${randomUUID()}` : this.nextId++);
+
+    const timestamp = (this.timeSource ? this.timeSource() : new Date()).toISOString();
+    const slot = {
+      id: slotId,
+      ...data,
+      professional,
+      createdAt: data.createdAt ?? timestamp,
+      updatedAt: data.updatedAt ?? timestamp,
+    };
     this._slots.push(slot);
     
     if (this.cache) {
-      this.cache.invalidate("slots:list:all");
+      this.cache.invalidate?.("slots:list:all");
     }
 
     return { ...slot };
   }
 
-  updateSlot(id: number | string, data: any): Slot {
-    if (!data) {
-      throw new SlotValidationError("Payload is required");
+  private async _createSlotAsync(data: any): Promise<Slot> {
+    if (typeof data.professional !== 'string' || data.professional.trim().length === 0) {
+      throw new SlotValidationError("professional must be a non-empty string");
+    }
+    if (data.endTime <= data.startTime) {
+      throw new SlotValidationError("endTime must be greater than startTime");
+    }
+    if (!Number.isFinite(data.startTime) || !Number.isFinite(data.endTime)) {
+      throw new SlotValidationError("startTime and endTime must be finite numbers");
+    }
+    if (data.validUntil !== undefined && data.validUntil !== null) {
+      if (!Number.isFinite(data.validUntil)) {
+        throw new SlotValidationError("validUntil must be a finite number");
+      }
+      if (data.validUntil <= data.endTime) {
+        throw new SlotValidationError("validUntil must be after endTime");
+      }
+    }
+
+    const professional = data.professional.trim();
+    const conflict = await Promise.resolve(this.hasConflict(professional, data.startTime, data.endTime));
+    if (conflict) {
+      throw new SlotConflictError("Slot conflicts with an existing slot");
+    }
+
+    if (this.repository && typeof (this.repository as any).create === 'function') {
+      try {
+        await (this.repository as any).create({
+          professional,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          ...data,
+        });
+      } catch (err: any) {
+        if (err?.code === "23P01") {
+          throw new SlotConflictError("Slot conflicts with an existing slot");
+        }
+        throw err;
+      }
+    }
+
+    const slotId = data.id !== undefined
+      ? data.id
+      : (this.useCanonicalId ? `slot-${randomUUID()}` : this.nextId++);
+
+    const timestamp = (this.timeSource ? this.timeSource() : new Date()).toISOString();
+    const slot = {
+      id: slotId,
+      ...data,
+      professional,
+      createdAt: data.createdAt ?? timestamp,
+      updatedAt: data.updatedAt ?? timestamp,
+    };
+    this._slots.push(slot);
+    
+    if (this.cache) {
+      this.cache.invalidate?.("slots:list:all");
+    }
+
+    return { ...slot };
+  }
+
+  updateSlot(id: number | string, data: any): any {
+    if (this.isRepoMode) {
+      return this._updateSlotAsync(id, data);
+    }
+    return this._updateSlotSync(id, data);
+  }
+
+  private _updateSlotSync(id: number | string, data: any): Slot {
+    if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length === 0) {
+      throw new SlotValidationError("update payload must be an object");
     }
 
     const index = this._slots.findIndex(s => String(s.id) === String(id));
     if (index === -1) throw new SlotNotFoundError(id);
     
-    if (data.professional !== undefined && typeof data.professional !== 'string') {
+    if (data.professional !== undefined) {
+      if (typeof data.professional !== 'string') {
         throw new SlotValidationError("professional must be a string");
+      }
+      if (data.professional.trim().length === 0) {
+        throw new SlotValidationError("professional must be a non-empty string");
+      }
     }
 
     if ((data.startTime !== undefined && !Number.isFinite(data.startTime)) || 
         (data.endTime !== undefined && !Number.isFinite(data.endTime))) {
-        throw new SlotValidationError("startTime and endTime must be finite numbers");
+      throw new SlotValidationError("startTime and endTime must be finite numbers");
+    }
+
+    const nextStartTime = data.startTime !== undefined ? data.startTime : this._slots[index].startTime;
+    const nextEndTime = data.endTime !== undefined ? data.endTime : this._slots[index].endTime;
+    if (nextEndTime <= nextStartTime) {
+      throw new SlotValidationError("endTime must be greater than startTime");
     }
 
     if (data.validUntil !== undefined && data.validUntil !== null) {
-        if (!Number.isFinite(data.validUntil)) {
-            throw new SlotValidationError("validUntil must be a finite number");
-        }
+      if (!Number.isFinite(data.validUntil)) {
+        throw new SlotValidationError("validUntil must be a finite number");
+      }
+      if (data.validUntil <= nextEndTime) {
+        throw new SlotValidationError("validUntil must be after endTime");
+      }
     }
 
-    if (data.validUntil !== undefined && data.validUntil !== null) {
-        const resolvedEnd = data.endTime !== undefined ? data.endTime : this._slots[index].endTime;
-        if (data.validUntil <= resolvedEnd) {
-            throw new SlotValidationError("validUntil must be after endTime");
-        }
+    const nextProfessional = data.professional !== undefined ? data.professional.trim() : this._slots[index].professional;
+    if (this.hasConflict(nextProfessional, nextStartTime, nextEndTime, id)) {
+      throw new SlotConflictError("Slot conflicts with an existing slot");
     }
     
-    this._slots[index] = { ...this._slots[index], ...data };
+    const timestamp = (this.timeSource ? this.timeSource() : new Date()).toISOString();
+    this._slots[index] = {
+      ...this._slots[index],
+      ...data,
+      professional: nextProfessional,
+      startTime: nextStartTime,
+      endTime: nextEndTime,
+      updatedAt: timestamp,
+    };
 
     if (this.cache) {
-      this.cache.invalidate("slots:list:all");
+      this.cache.invalidate?.("slots:list:all");
+    }
+
+    return { ...this._slots[index] };
+  }
+
+  private async _updateSlotAsync(id: number | string, data: any): Promise<Slot> {
+    if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length === 0) {
+      throw new SlotValidationError("update payload must be an object");
+    }
+
+    const index = this._slots.findIndex(s => String(s.id) === String(id));
+    if (index === -1) throw new SlotNotFoundError(id);
+    
+    if (data.professional !== undefined) {
+      if (typeof data.professional !== 'string') {
+        throw new SlotValidationError("professional must be a string");
+      }
+      if (data.professional.trim().length === 0) {
+        throw new SlotValidationError("professional must be a non-empty string");
+      }
+    }
+
+    if ((data.startTime !== undefined && !Number.isFinite(data.startTime)) || 
+        (data.endTime !== undefined && !Number.isFinite(data.endTime))) {
+      throw new SlotValidationError("startTime and endTime must be finite numbers");
+    }
+
+    const nextStartTime = data.startTime !== undefined ? data.startTime : this._slots[index].startTime;
+    const nextEndTime = data.endTime !== undefined ? data.endTime : this._slots[index].endTime;
+    if (nextEndTime <= nextStartTime) {
+      throw new SlotValidationError("endTime must be greater than startTime");
+    }
+
+    if (data.validUntil !== undefined && data.validUntil !== null) {
+      if (!Number.isFinite(data.validUntil)) {
+        throw new SlotValidationError("validUntil must be a finite number");
+      }
+      if (data.validUntil <= nextEndTime) {
+        throw new SlotValidationError("validUntil must be after endTime");
+      }
+    }
+
+    const nextProfessional = data.professional !== undefined ? data.professional.trim() : this._slots[index].professional;
+    const conflict = await Promise.resolve(this.hasConflict(nextProfessional, nextStartTime, nextEndTime, id));
+    if (conflict) {
+      throw new SlotConflictError("Slot conflicts with an existing slot");
+    }
+    
+    const timestamp = (this.timeSource ? this.timeSource() : new Date()).toISOString();
+    this._slots[index] = {
+      ...this._slots[index],
+      ...data,
+      professional: nextProfessional,
+      startTime: nextStartTime,
+      endTime: nextEndTime,
+      updatedAt: timestamp,
+    };
+
+    if (this.cache) {
+      this.cache.invalidate?.("slots:list:all");
     }
 
     return { ...this._slots[index] };
@@ -341,19 +561,31 @@ export class SlotService {
   }
 
   reset(): void {
-    this._slots = [];
+    this._slots.length = 0;
     this.nextId = 1;
     this._holds = [];
     this._holdNextId = 1;
     if (this.cache) {
-      this.cache.invalidate("slots:list:all");
+      if (typeof this.cache.clear === "function") {
+        this.cache.clear();
+      }
+      if (typeof this.cache.invalidate === "function") {
+        this.cache.invalidate("slots:list:all");
+      }
     }
   }
 
   async findById(id: number | string): Promise<Slot> {
     const slot = this._slots.find(s => String(s.id) === String(id));
-    if (!slot) throw new SlotNotFoundError(id);
-    return { ...slot };
+    if (slot) return { ...slot };
+    if (this.repository && typeof (this.repository as any).findById === 'function') {
+      const res = await Promise.resolve((this.repository as any).findById(id));
+      if (res) return { ...res };
+    }
+    if (this.isRepoMode) {
+      return null as any;
+    }
+    throw new SlotNotFoundError(id);
   }
 
   async findByIds(ids: readonly (number | string)[]): Promise<(Slot | Error)[]> {
@@ -364,14 +596,29 @@ export class SlotService {
     });
   }
 
-  async deleteSlot(id: number | string): Promise<number | string> {
+  deleteSlot(id: number | string): any {
+    if (this.isRepoMode) {
+      return (async () => {
+        const index = this._slots.findIndex(s => String(s.id) === String(id));
+        if (index === -1) throw new SlotNotFoundError(id);
+
+        const [removed] = this._slots.splice(index, 1);
+
+        if (this.cache) {
+          this.cache.invalidate?.("slots:list:all");
+        }
+
+        return removed.id;
+      })();
+    }
+
     const index = this._slots.findIndex(s => String(s.id) === String(id));
     if (index === -1) throw new SlotNotFoundError(id);
 
     const [removed] = this._slots.splice(index, 1);
 
     if (this.cache) {
-      this.cache.invalidate("slots:list:all");
+      this.cache.invalidate?.("slots:list:all");
     }
 
     return removed.id;

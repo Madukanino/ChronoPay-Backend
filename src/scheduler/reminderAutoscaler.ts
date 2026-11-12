@@ -21,7 +21,7 @@ export class ReminderAutoscaler {
     if (
       perWorker > this.config.scaleUpThreshold &&
       this.currentConcurrency < this.config.maxConcurrency &&
-      now - this.lastScaleUp > this.config.scaleUpCooldownMs
+      now - this.lastScaleUp >= this.config.scaleUpCooldownMs
     ) {
       this.currentConcurrency++;
       this.lastScaleUp = now;
@@ -30,7 +30,7 @@ export class ReminderAutoscaler {
     else if (
       perWorker < this.config.scaleDownThreshold &&
       this.currentConcurrency > this.config.minConcurrency &&
-      now - this.lastScaleDown > this.config.scaleDownCooldownMs
+      now - this.lastScaleDown >= this.config.scaleDownCooldownMs
     ) {
       this.currentConcurrency--;
       this.lastScaleDown = now;

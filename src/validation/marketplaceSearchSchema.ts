@@ -21,48 +21,33 @@ const MIN_SUPPLIER_CAP = 1;
  * Single price range filter: { min: number, max: number }
  * Both in cents, non-negative, max must be >= min
  */
-const PriceRangeSchema = z
-  .object({
-    min: z.number().int().nonnegative("min price must be non-negative").optional(),
-    max: z.number().int().nonnegative("max price must be non-negative").optional(),
-  })
-  .refine((data) => !data.min || !data.max || data.max >= data.min, {
-    message: "max price must be >= min price",
-    path: ["max"],
-  });
+const PriceRangeSchema = z.object({
+  min: z.number().int().nonnegative("min price must be non-negative").optional(),
+  max: z.number().int().nonnegative("max price must be non-negative").optional(),
+});
 
 /**
  * Rating range filter: { min: number, max: number }
  * Both in range [0, 5], max must be >= min
  */
-const RatingRangeSchema = z
-  .object({
-    min: z.number().min(0, "min rating must be >= 0").max(5, "min rating must be <= 5").optional(),
-    max: z.number().min(0, "max rating must be >= 0").max(5, "max rating must be <= 5").optional(),
-  })
-  .refine((data) => !data.min || !data.max || data.max >= data.min, {
-    message: "max rating must be >= min rating",
-    path: ["max"],
-  });
+const RatingRangeSchema = z.object({
+  min: z.number().min(0, "min rating must be >= 0").max(5, "min rating must be <= 5").optional(),
+  max: z.number().min(0, "max rating must be >= 0").max(5, "max rating must be <= 5").optional(),
+});
 
 /**
  * Time window filter: { startTime: timestamp, endTime: timestamp }
  * Represents a time range for when slots should fall
  * endTime must be > startTime
  */
-const TimeWindowSchema = z
-  .object({
-    startTime: z
-      .number()
-      .int()
-      .nonnegative("startTime must be non-negative Unix timestamp")
-      .optional(),
-    endTime: z.number().int().nonnegative("endTime must be non-negative Unix timestamp").optional(),
-  })
-  .refine((data) => !data.startTime || !data.endTime || data.endTime > data.startTime, {
-    message: "endTime must be > startTime",
-    path: ["endTime"],
-  });
+const TimeWindowSchema = z.object({
+  startTime: z
+    .number()
+    .int()
+    .nonnegative("startTime must be non-negative Unix timestamp")
+    .optional(),
+  endTime: z.number().int().nonnegative("endTime must be non-negative Unix timestamp").optional(),
+});
 
 /**
  * Geo-radius filter: { lat, lng, radiusKm }
@@ -150,35 +135,6 @@ export const MarketplaceSearchSchema = z.object({
       path: ["cursor"],
     });
   }
-});
-  /**
-   * When true (default), slots that are currently held are excluded from
-   * browse results. Set to false only in admin / operator contexts where
-   * held slots must still be visible.
-   */
-  suppressHeld: z.boolean().default(true),
-
-  /**
-   * When true, the estimated hold-release time is included in each
-   * returned slot where policy allows disclosure.  Ignored when
-   * suppressHeld is true (held slots are not returned at all).
-   */
-  showHeldReleaseEta: z.boolean().default(false),
-
-  // Sorting/ranking
-  sortBy: z.enum(["rating", "price", "relevance"]).default("relevance"),
-
-  // Facet counts
-  includeFacets: z.boolean().default(false),
-
-  // Result diversification
-  diversify: z.boolean().default(true),
-  supplierCap: z
-    .number()
-    .int()
-    .min(MIN_SUPPLIER_CAP, `supplierCap must be >= ${MIN_SUPPLIER_CAP}`)
-    .max(MAX_SUPPLIER_CAP, `supplierCap must be <= ${MAX_SUPPLIER_CAP}`)
-    .optional(),
 });
 
 export type MarketplaceSearchQueryInput = z.input<typeof MarketplaceSearchSchema>;

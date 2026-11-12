@@ -27,7 +27,6 @@ import { PgCheckoutSessionRepository } from "../modules/checkout/pg-checkout-ses
 import { query } from "../db/pool.js";
 import { DisputeArbitrationQueueService } from "../services/disputeArbitrationQueue.js";
 import {
-  addSeniorArbiter,
   appendFinalityLink,
   canTransition,
   decideByMajority,
@@ -44,8 +43,19 @@ import {
 } from "../services/disputeDeadlineService.js";
 import { isDisputeDeadlineSchedulerRunning } from "../scheduler/disputeDeadlineScheduler.js";
 import { getPayoutQuarantineService } from "../services/quarantineStore.js";
+import { getPayoutDlqStore, type PayoutDlqStatus } from "../services/payoutDlqStore.js";
 import { strikeService } from "../services/strikeService.js";
 import type { Dispute as DisputeDomainType, SeniorPanelVote } from "../types/dispute.js";
+import { AUDIT_SCHEMA_VERSION } from "../types/auditEvent.js";
+import gdprDsrRouter, { setDsrSlaService } from "./adminGdprDsr.js";
+import accessReviewRouter from "./adminAccessReview.js";
+import cancellationOverridesRouter from "./adminCancellationOverrides.js";
+import { listReputationEvents } from "../services/reputationWriteAudit.js";
+import {
+  runSnapshotJob,
+  listReputationSnapshots,
+  DEFAULT_TIER_BOUNDARIES,
+} from "../services/reputationSnapshotService.js";
 
 /**
  * Singleton cancellation-reversal service. The route handlers reuse
@@ -100,12 +110,20 @@ export function setCancellationReversalService(
   _cancellationReversalService = service;
 }
 
-export function setDsrSlaService(_service: any): void {}
+// Re-exported so tests and production bootstrap can swap the DSR SLA service
+// without importing the sub-router module directly.
+export { setDsrSlaService };
 
 // Re-export for route-level test convenience.
 export { setReversalTenantPausedResolver };
 
 const router = Router();
+
+// GDPR DSR SLA and SOC2 access-review endpoints. Mounted as sub-routers so
+// their HTTP edges (validation + error mapping) stay out of this large module.
+router.use(gdprDsrRouter);
+router.use(accessReviewRouter);
+router.use(cancellationOverridesRouter);
 const disputeQueueService = new DisputeArbitrationQueueService();
 
 // In-memory dispute state for E2E tests
@@ -2183,6 +2201,100 @@ router.get(
       queue,
       total: queue.length,
     });
+  },
+);
+
+/**
+ * @route GET /api/v1/admin/suppliers/:supplierId/reputation/history
+ * @desc Get reputation audit events for a supplier
+ * @access Private (admin token only)
+ */
+router.get(
+  "/suppliers/:supplierId/reputation/history",
+  requireAdminToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { supplierId } = req.params;
+      const limit = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 50;
+      const offset = req.query.offset !== undefined ? parseInt(String(req.query.offset), 10) : 0;
+      if (isNaN(limit) || limit < 1 || limit > 200)
+        return res.status(400).json({ success: false, error: "limit must be between 1 and 200" });
+      if (isNaN(offset) || offset < 0)
+        return res.status(400).json({ success: false, error: "offset must be a non-negative integer" });
+      const since = typeof req.query.since === "string" ? new Date(req.query.since) : undefined;
+      const until = typeof req.query.until === "string" ? new Date(req.query.until) : undefined;
+      if (since && isNaN(since.getTime()))
+        return res.status(400).json({ success: false, error: "since must be a valid ISO 8601 date" });
+      if (until && isNaN(until.getTime()))
+        return res.status(400).json({ success: false, error: "until must be a valid ISO 8601 date" });
+      const result = await listReputationEvents({ supplierId: supplierId.trim(), limit, offset, since, until });
+      return res.status(200).json({ success: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message ?? "Failed to list reputation history" });
+    }
+  },
+);
+
+/**
+ * @route GET /api/v1/admin/reputation/snapshots
+ * @desc Get reputation snapshots with filtering
+ * @access Private (admin token only)
+ */
+router.get(
+  "/reputation/snapshots",
+  requireAdminToken,
+  async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit !== undefined ? parseInt(String(req.query.limit), 10) : 90;
+      const offset = req.query.offset !== undefined ? parseInt(String(req.query.offset), 10) : 0;
+      if (isNaN(limit) || limit < 1 || limit > 365)
+        return res.status(400).json({ success: false, error: "limit must be between 1 and 365" });
+      if (isNaN(offset) || offset < 0)
+        return res.status(400).json({ success: false, error: "offset must be a non-negative integer" });
+      const result = await listReputationSnapshots({
+        supplierId: typeof req.query.supplierId === "string" ? req.query.supplierId : undefined,
+        since: typeof req.query.since === "string" ? req.query.since : undefined,
+        until: typeof req.query.until === "string" ? req.query.until : undefined,
+        limit,
+        offset,
+      });
+      return res.status(200).json({ success: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message ?? "Failed to list reputation snapshots" });
+    }
+  },
+);
+
+/**
+ * @route POST /api/v1/admin/reputation/snapshots/run
+ * @desc Run daily reputation snapshot job
+ * @access Private (admin token only)
+ */
+router.post(
+  "/reputation/snapshots/run",
+  requireAdminToken,
+  async (req: Request, res: Response) => {
+    try {
+      const { suppliers, snapshotDate, tierBoundaries } = req.body ?? {};
+      if (!Array.isArray(suppliers) || suppliers.length === 0)
+        return res.status(400).json({ success: false, error: "suppliers must be a non-empty array of { supplierId, score }" });
+      for (const s of suppliers) {
+        if (typeof s.supplierId !== "string" || !s.supplierId.trim())
+          return res.status(400).json({ success: false, error: "Each supplier must have a non-empty supplierId" });
+        if (typeof s.score !== "number" || !Number.isFinite(s.score))
+          return res.status(400).json({ success: false, error: `Invalid score for supplier ${s.supplierId}` });
+      }
+      let date: Date | undefined;
+      if (snapshotDate) {
+        date = new Date(snapshotDate);
+        if (isNaN(date.getTime()))
+          return res.status(400).json({ success: false, error: "snapshotDate must be a valid YYYY-MM-DD date" });
+      }
+      const result = await runSnapshotJob(suppliers, date, tierBoundaries ?? DEFAULT_TIER_BOUNDARIES);
+      return res.status(200).json({ success: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message ?? "Snapshot job failed" });
+    }
   },
 );
 

@@ -20,6 +20,12 @@ import {
   getSlotRecordById,
   type SecondaryListingInput,
 } from "../repositories/slotRepository.js";
+import {
+  getCachedSlotsPage,
+  setCachedSlotsPage,
+  invalidateSlotsCache,
+} from "../cache/slotCache.js";
+import { payloadLimit, ROUTE_PAYLOAD_LIMITS } from "../middleware/payloadLimit.js";
 
 const router = Router();
 const SLOT_NOT_FOUND = "Slot not found";
@@ -31,6 +37,29 @@ router.use(featureFlagContextMiddleware);
  */
 export function resetSlotStore(): void {
   slotService.reset();
+}
+
+/** Longest bookable slot window the platform accepts. */
+const MAX_SLOT_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/** True for a usable epoch-ms value (finite number, not NaN). */
+function isEpoch(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Normalizes an accepted time value to epoch milliseconds.
+ *
+ * The request schema admits a finite number or a parseable ISO-8601 string;
+ * SlotService's range checks are all in epoch ms, so strings are converted
+ * here. Values that are neither are passed through untouched so SlotService
+ * can reject them with its own validation message.
+ */
+function toEpochMs(value: unknown): unknown {
+  if (typeof value === "string") {
+    return Date.parse(value);
+  }
+  return value;
 }
 
 /**
@@ -46,10 +75,37 @@ router.get(
 
       const page = pageStr !== undefined ? parseInt(pageStr) : 1;
       const limit = limitStr !== undefined ? parseInt(limitStr) : 10;
+      const timezone = req.buyerTimezone || "UTC";
+
+      const cached = await getCachedSlotsPage(page);
+      if (cached && (!limitStr || cached.pageSize === limit)) {
+        const normalized = normalizeSlots(cached.slots as any, timezone);
+        res.set("X-Cache", "HIT");
+        return res.json({
+          success: true,
+          data: normalized,
+          slots: normalized,
+          page: cached.page,
+          limit: cached.pageSize,
+          total: cached.total,
+          timezone,
+          timezoneSource: req.buyerTimezoneSource || "default",
+          meta: {
+            cache: "hit",
+          },
+        });
+      }
 
       const result = await slotService.list({ page, limit });
-      const timezone = req.buyerTimezone || "UTC";
       const normalized = normalizeSlots(result.slots as any, timezone);
+
+      await setCachedSlotsPage(page, {
+        slots: result.slots as any,
+        page: result.page,
+        pageSize: result.limit,
+        total: result.total,
+        totalPages: Math.ceil(result.total / result.limit),
+      });
 
       res.set("X-Cache", "MISS");
       res.json({
@@ -271,12 +327,47 @@ router.post(
  */
 router.post(
   "/",
-  requireApiKey("test-api-key"),
+  ...payloadLimit(ROUTE_PAYLOAD_LIMITS.slots),
+  requireApiKey(process.env.CHRONOPAY_API_KEY),
   requireFeatureFlag("CREATE_SLOT"),
-  validateBody(CreateSlotBodySchema),
+  // Times that parse but are impossible (negative epoch, > 24h span) are
+  // semantically unprocessable rather than malformed, so they answer 422.
+  validateBody(CreateSlotBodySchema, 422),
   async (req: Request, res: Response) => {
     try {
-      const slot = slotService.createSlot(req.body);
+      // The schema accepts either an epoch-ms number or an ISO-8601 string;
+      // SlotService works in epoch ms, so normalize before handing off.
+      const startTime = toEpochMs(req.body.startTime);
+      const endTime = toEpochMs(req.body.endTime);
+
+      // Self-contradictory range: 400, the client sent an end at or before the
+      // start and no amount of retrying will make that request valid.
+      if (isEpoch(startTime) && isEpoch(endTime) && endTime <= startTime) {
+        return res.status(400).json({
+          success: false,
+          error: "endTime must be greater than startTime",
+        });
+      }
+
+      // Individually valid times that cannot describe a real booking window:
+      // 422, the request parses but is semantically unprocessable.
+      if (
+        isEpoch(startTime) &&
+        isEpoch(endTime) &&
+        endTime - startTime > MAX_SLOT_DURATION_MS
+      ) {
+        return res.status(422).json({
+          success: false,
+          error: "Slot duration cannot exceed 24 hours",
+        });
+      }
+
+      const slot = slotService.createSlot({
+        ...req.body,
+        startTime,
+        endTime,
+      });
+      await invalidateSlotsCache();
       res.status(201).json({
         success: true,
         slot,
@@ -303,7 +394,7 @@ router.post(
  */
 router.post(
   "/conflicts/preview",
-  requireApiKey("test-api-key"),
+  requireApiKey(process.env.CHRONOPAY_API_KEY),
   requireFeatureFlag("CREATE_SLOT"),
   validateBody(ConflictPreviewBodySchema),
   async (req: Request, res: Response) => {
@@ -349,6 +440,7 @@ router.patch("/:id", requireRole(["admin"]), async (req: Request, res: Response)
   try {
     const { id } = req.params;
     const updatedSlot = slotService.updateSlot(id, req.body);
+    await invalidateSlotsCache();
 
     res.json({
       success: true,
@@ -383,6 +475,7 @@ router.delete("/:id", authorizeSlotDelete, async (req: Request, res: Response) =
     }
 
     const deletedSlotId = await slotService.deleteSlot(id);
+    await invalidateSlotsCache();
     res.json({ success: true, deletedSlotId });
   } catch (error: any) {
     if (error instanceof SlotNotFoundError) {

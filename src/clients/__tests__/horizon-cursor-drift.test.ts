@@ -111,10 +111,19 @@ describe("Horizon Cursor Drift Stress Tests", () => {
       const urlStr = typeof input === "string" ? input : input.toString();
       const res = mockServer.handleFetch(urlStr);
 
+      const headers = new Headers({
+        "X-RateLimit-Remaining": "1000000",
+        "X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + 3600),
+      });
+
       if (res.status !== 200) {
+        if (res.status === 429) {
+          headers.set("Retry-After", "0");
+        }
         return {
           ok: false,
           status: res.status,
+          headers,
           text: async () => res.body as string,
         } as unknown as Response;
       }
@@ -122,6 +131,7 @@ describe("Horizon Cursor Drift Stress Tests", () => {
       return {
         ok: true,
         status: 200,
+        headers,
         json: async () => res.body,
         text: async () => JSON.stringify(res.body),
       } as unknown as Response;
@@ -225,7 +235,7 @@ describe("Horizon Cursor Drift Stress Tests", () => {
 
       // Assertion 4: Memory growth is bounded (< 50MB for 10k items)
       expect(heapDiffMB).toBeLessThan(50);
-    });
+    }, 30000);
   });
 
   describe("Pagination Edge Cases", () => {

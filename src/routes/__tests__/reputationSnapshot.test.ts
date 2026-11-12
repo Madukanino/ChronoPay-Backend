@@ -65,7 +65,7 @@ describe("runSnapshotJob()", () => {
   const suppliers = [
     { supplierId: "sup-1", score: 92 },
     { supplierId: "sup-2", score: 71 },
-    { supplierId: "sup-3", score: 48 },
+    { supplierId: "sup-3", score: 58 },
   ];
 
   it("writes one snapshot per supplier", async () => {

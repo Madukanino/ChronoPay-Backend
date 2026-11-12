@@ -226,7 +226,7 @@ const createLoggerConfig = (): any => {
    * Development mode: pretty-printed logs for better developer experience
    * Production/Test mode: raw JSON for log aggregation systems
    */
-  if (!isProduction && !isTest) {
+  if (!isProduction && !isTest && process.env.JEST_WORKER_ID === undefined) {
     config.transport = {
       target: "pino-pretty",
       options: {

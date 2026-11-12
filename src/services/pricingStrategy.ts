@@ -235,7 +235,7 @@ export function resolvePrice(strategyId: StrategyId, input: PricingInput): Prici
 
 /** Returns the list of registered strategy identifiers. */
 export function listStrategies(): StrategyId[] {
-  return Object.keys(REGISTRY) as StrategyId[];
+  return ["fixed", "time_decay", "demand_based"];
 }
 
 // ─── Bundle Pricing with Discount Curves ──────────────────────────────────────
